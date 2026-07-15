@@ -3,7 +3,8 @@ from metadata import cap_tags, load_metadata
 
 
 def test_cap_tags_stops_before_budget():
-    assert cap_tags(["aaaa", "bbbb", "cccc"], budget=9) == ["aaaa"]  # 4 + 1 + 4 = 9 > 9 stops
+    # aaaa=4 fits; bbbb would be 4+1+4=9 > budget 8 -> stops at ["aaaa"]
+    assert cap_tags(["aaaa", "bbbb", "cccc"], budget=8) == ["aaaa"]
 
 
 def test_cap_tags_keeps_all_when_under_budget():
