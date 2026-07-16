@@ -7,6 +7,10 @@ handles the "Verify it's you" gate, selects the target channel, pre-checks the
 video length against the unverified-channel limit, and verifies the upload
 actually published.
 
+<p align="center">
+  <img src="assets/video-publisher_comic.png" alt="video-publisher — publish to YouTube through a browser session, no API keys" width="820">
+</p>
+
 ## 🏭 The Content Factory
 
 video-publisher is the **final stage (4)** of an automated pipeline that turns a
