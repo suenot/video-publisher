@@ -53,6 +53,18 @@ async def open_upload(page, video, debug):
     await fi.set_input_files(str(video))
     log(f"  selected: {video.name}")
     await page.wait_for_timeout(4000)
+    # Big uploads keep the details dialog dimmed ("Creating link...") until the
+    # video entity exists; editing before that silently fails. Wait for the watch
+    # link to be created (up to ~3 min) before returning to fill details.
+    for _ in range(60):
+        try:
+            html = await page.content()
+        except Exception:
+            html = ""
+        if "youtu.be/" in html or "watch?v=" in html:
+            log("  upload link created; details editable")
+            break
+        await page.wait_for_timeout(3000)
     return True
 
 
