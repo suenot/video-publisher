@@ -81,8 +81,6 @@ async def select_channel(page, channel_id=None, handle=None):
     """Switch Studio's active channel to a brand channel via the account switcher.
     Deep-linking to /channel/<id> does NOT work for brand channels (permission
     error) — the account context must be switched via the Accounts panel."""
-    import youtube_ui as ui  # local import avoids a module-load cycle
-
     target = channel_id
     if not target and handle:
         target = await resolve_channel_id(page, handle)
@@ -95,22 +93,48 @@ async def select_channel(page, channel_id=None, handle=None):
         log(f"  already on target channel: {target}")
         return target
 
-    for sel in ("button#avatar-btn", "ytcp-icon-button#avatar-btn",
-                "button[aria-label='Account']"):
-        b = page.locator(sel)
-        try:
-            if await b.count() > 0 and await b.first.is_visible():
-                if await _real_click(page, b.first):
-                    break
-        except Exception:
-            continue
-    await page.wait_for_timeout(1500)
-    await _strip_backdrops(page)
-    await ui.click_text(page, ["Switch account"], 5000)
-    await page.wait_for_timeout(3000)
-
     needle = normalize_handle(handle) if handle else (target or "")
-    ok = await _click_switch_card(page, needle)
+    ok = False
+    # The avatar menu and the Accounts panel each render asynchronously; fixed
+    # sleeps raced them and the "Switch account" click landed on nothing, so the
+    # card never appeared. Wait for each step's own evidence instead, and retry
+    # the whole sequence — a single miss used to leave the wrong channel active.
+    for attempt in range(3):
+        for sel in ("button#avatar-btn", "ytcp-icon-button#avatar-btn",
+                    "button[aria-label='Account']"):
+            b = page.locator(sel)
+            try:
+                if await b.count() > 0 and await b.first.is_visible():
+                    if await _real_click(page, b.first):
+                        break
+            except Exception:
+                continue
+        # Don't gate on the menu item's visibility: "Switch account" resolves to
+        # a zero-size text node inside the paper-item, which never reports
+        # visible even with the menu fully open. Click it and judge by whether
+        # the Accounts panel populates.
+        await page.wait_for_timeout(2500)
+        await _strip_backdrops(page)
+        try:
+            await page.get_by_text("Switch account").first.click(timeout=8000)
+        except Exception:
+            log(f"  'Switch account' not clickable (attempt {attempt + 1})")
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(1500)
+            continue
+        cards = page.locator("ytd-account-item-renderer")
+        try:
+            await cards.first.wait_for(state="visible", timeout=10_000)
+        except Exception:
+            log(f"  accounts panel did not populate (attempt {attempt + 1})")
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(1500)
+            continue
+        ok = await _click_switch_card(page, needle)
+        if ok:
+            break
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(1500)
     # Switching reloads Studio as the new channel — wait for that.
     try:
         await page.wait_for_load_state("networkidle", timeout=15_000)
