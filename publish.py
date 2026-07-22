@@ -482,20 +482,38 @@ async def run(args):
         # not silently blocked by the modal. No reload (would drop the dialog).
         if not await clear_verify_gate(page, args):
             return 7
-        if not await fill_details(page, meta, args.thumbnail,
-                                  args.made_for_kids, args.debug):
-            log("PUBLISH FAILED: audience question unanswered; the upload is "
-                "left as a draft")
-            return 9
-        if not await click_next(page, 3, args.debug):
-            log("PUBLISH FAILED: wizard never reached the visibility step; "
-                "the upload is left as a draft")
-            return 9
-        if not await set_visibility(page, args.visibility, args.debug):
-            log("PUBLISH FAILED: visibility not applied; refusing to report success")
-            return 9
-        if not await save(page, args.debug):
-            log("PUBLISH FAILED: Save did not take effect; the upload is left as a draft")
+        async def landed_anyway(stage):
+            """Did the video make it onto the channel despite `stage` failing?
+
+            Studio autosaves the details as they are typed, so a wizard that
+            stalls half-way can still leave a complete, published video. Saying
+            "failed" then is worse than useless: the caller retries and
+            publishes a duplicate.
+            """
+            log(f"  {stage} failed; checking whether the video landed anyway")
+            await wait_for_upload(page, args.debug)
+            if not cid:
+                return ""
+            return await find_by_title(page, cid, meta["title"])
+
+        for stage, step in (
+                ("details", lambda: fill_details(page, meta, args.thumbnail,
+                                                 args.made_for_kids, args.debug)),
+                ("visibility step", lambda: click_next(page, 3, args.debug)),
+                ("visibility", lambda: set_visibility(page, args.visibility,
+                                                      args.debug)),
+                ("save", lambda: save(page, args.debug))):
+            if await step():
+                continue
+            found = await landed_anyway(stage)
+            if found:
+                log(f"  the {stage} step failed, but the video is on the channel "
+                    f"as {found} — not retrying")
+                log(f"VIDEO_ID: {found}")
+                log("RESULT: status=present note=wizard-incomplete")
+                return 0
+            log(f"PUBLISH FAILED: {stage} did not take effect; "
+                f"the upload is left as a draft")
             return 9
 
         # Capture the watch id from the save dialog (for blog embedding).

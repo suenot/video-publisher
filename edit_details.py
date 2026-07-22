@@ -307,7 +307,18 @@ async def main(args) -> int:
                 f"({args.channel_handle}) — retry the switch later")
             return 3
         for vid in ids:
-            if not await edit_one(page, vid, meta, args.language):
+            # Studio sometimes stops servicing input events, and the mouse
+            # clicks these edits rely on have no timeout of their own — one
+            # such video used to hold the whole batch for as long as it was
+            # left running.
+            try:
+                ok = await asyncio.wait_for(
+                    edit_one(page, vid, meta, args.language),
+                    timeout=args.per_video_timeout)
+            except asyncio.TimeoutError:
+                log(f"  {vid}: gave up after {args.per_video_timeout}s")
+                ok = False
+            if not ok:
                 failed.append(vid)
     log(f"RESULT: {len(ids) - len(failed)}/{len(ids)} ok on {args.channel_handle}")
     for vid in failed:
@@ -328,6 +339,9 @@ def parse_args(argv=None):
     p.add_argument("--language", default="",
                    help="Video language, exactly as Studio lists it "
                         "(e.g. 'Chinese (Simplified)', 'Russian', 'English')")
+    p.add_argument("--per-video-timeout", type=int, default=240,
+                   help="seconds before abandoning one video and "
+                        "moving to the next")
     p.add_argument("--headless", action="store_true")
     return p.parse_args(argv)
 
