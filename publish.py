@@ -8,7 +8,8 @@ from pathlib import Path
 from camoufox_session import make_camoufox, prepare_page, logged_in_youtube, log, shot
 from metadata import load_metadata
 from precheck import video_duration, check
-from channel import select_channel, channel_id_from_url, _strip_backdrops
+from channel import (select_channel, resolve_channel_id,
+                     channel_id_from_url, _strip_backdrops)
 from verify_result import parse_status
 import youtube_ui as ui
 
@@ -459,6 +460,17 @@ async def run(args):
         cid = None
         if args.channel_id or args.channel_handle:
             cid = await select_channel(page, args.channel_id, args.channel_handle)
+            wanted = args.channel_id or await resolve_channel_id(
+                page, args.channel_handle)
+            # The Accounts panel regularly refuses to open. Uploading anyway
+            # publishes to whichever channel happens to be active — a Chinese
+            # Short landing on the Russian channel is not recoverable by
+            # editing, only by deleting and re-uploading.
+            if wanted and cid != wanted:
+                log(f"ABORT: on channel {cid}, wanted {wanted} "
+                    f"({args.channel_handle or args.channel_id}) — "
+                    f"retry once the switch lands")
+                return 5
 
         if cid and not args.allow_duplicate:
             dup = await find_by_title(page, cid, meta["title"])
