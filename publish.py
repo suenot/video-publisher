@@ -248,6 +248,24 @@ async def set_visibility(page, visibility, debug):
     return ok
 
 
+# Studio replaces the details wizard with a confirmation dialog once the save
+# lands ("Video processing" / "Upload complete ... Processing will begin
+# shortly"). That dialog carries its own done-button, so a save that worked
+# perfectly still looks like a wizard that never closed.
+SAVED_MARKERS = ("processing will begin", "upload complete", "video processing",
+                 "your video is now", "share your video")
+
+
+async def _save_landed(page, done_locator):
+    try:
+        if await done_locator.count() == 0 or not await done_locator.first.is_visible():
+            return True
+    except Exception:
+        return True
+    text = await ui.all_text(page)
+    return any(m in text for m in SAVED_MARKERS)
+
+
 async def save(page, debug):
     d = page.locator("ytcp-button#done-button, #done-button")
     clicked = False
@@ -261,12 +279,8 @@ async def save(page, debug):
             continue
         await _try_click(page, d.first)
         await page.wait_for_timeout(3000)
-        # Save is confirmed by the dialog going away, not by the click itself.
-        try:
-            if await d.count() == 0 or not await d.first.is_visible():
-                clicked = True
-                break
-        except Exception:
+        # Save is confirmed by the wizard giving way, not by the click itself.
+        if await _save_landed(page, d):
             clicked = True
             break
     await page.wait_for_timeout(1000)
