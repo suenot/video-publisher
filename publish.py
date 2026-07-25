@@ -87,7 +87,7 @@ async def find_by_title(page, channel_id, title):
     return ""
 
 
-OPEN_UPLOAD_LIMIT_S = 300
+OPEN_UPLOAD_LIMIT_S = 90
 
 
 async def open_upload(page, video, debug):
@@ -103,6 +103,14 @@ async def open_upload(page, video, debug):
                                       timeout=OPEN_UPLOAD_LIMIT_S)
     except asyncio.TimeoutError:
         log(f"  ERROR: upload dialog did not come up within {OPEN_UPLOAD_LIMIT_S}s")
+        try:
+            await shot(page, "yt_xx_upload_timeout", debug)
+            log(f"  current url: {page.url}")
+            at = await ui.all_text(page)
+            snippet = (at or "")[:400].replace("\n", " ")
+            log(f"  page text snippet: {snippet}")
+        except Exception as e:
+            log(f"  (timeout screenshot failed: {e})")
         return False
 
 
