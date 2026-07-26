@@ -89,6 +89,33 @@ async def find_by_title(page, channel_id, title):
 
 OPEN_UPLOAD_LIMIT_S = 480
 
+# YouTube shows a transient notice when the channel hit its daily upload quota
+# (common on new/low-subscriber channels after a burst of uploads). Retrying is
+# futile — the quota resets ~24h later — so detect it fast, screenshot it, and
+# signal the caller to stop the whole upload phase for the day.
+UPLOAD_LIMIT_PHRASES = (
+    "daily upload limit", "upload limit", "daily limit", "limit reached",
+    "reached the limit", "reached your", "uploads are limited", "can't upload",
+    "cannot upload", "try again in 24", "try again later", "upload more videos",
+    "exceeded the", "exceeded your", "maximum number of uploads", "upload quota",
+    "not eligible to upload", "verify your account", "verify your channel",
+)
+
+
+def _limit_hit(txt):
+    """Return the matched limit-phrase (lowercased) if `txt` looks like an
+    upload-limit/quota notice, else None."""
+    low = (txt or "").lower()
+    for p in UPLOAD_LIMIT_PHRASES:
+        if p in low:
+            return p
+    return None
+
+
+class UploadLimitReached(Exception):
+    """Raised when YouTube reports the daily upload limit / a verify gate.
+    Signals the orchestrator to STOP the upload phase (no retry)."""
+
 
 async def open_upload(page, video, debug):
     """Open the upload dialog and hand it the file, under a hard time limit.
@@ -183,13 +210,31 @@ async def _open_upload(page, video, debug):
     for _ in range(160):
         try:
             txt = (await ui.all_text(page))
-        except Exception:
+        except Exception as e:
+            # The dialog/page closed on us mid-upload — almost always means
+            # YouTube rejected the upload (daily limit, quota, verify gate).
+            # Treat a closed target as a hard reject, not a throttle wait.
+            if "TargetClosedError" in type(e).__name__ or "closed" in str(e).lower():
+                await shot(page, "yt_xx_dialog_closed", debug)
+                log("  upload dialog closed mid-upload (rejected?)")
+                raise UploadLimitReached("upload dialog closed mid-upload")
             txt = ""
+        # Daily upload limit / quota notice — fail fast, screenshot the proof.
+        hit = _limit_hit(txt)
+        if hit:
+            await shot(page, "yt_xx_upload_limit", debug)
+            snippet = " ".join(txt.split())[:300]
+            log(f"  UPLOAD LIMIT NOTICE ('{hit}'): {snippet}")
+            raise UploadLimitReached(f"upload limit notice: '{hit}'")
         creating = "creating link" in txt
         r = page.locator("tp-yt-paper-radio-button[name='VIDEO_MADE_FOR_KIDS_NOT_MFK']")
         try:
             enabled = await r.count() > 0 and await r.first.is_enabled()
-        except Exception:
+        except Exception as e:
+            if "TargetClosedError" in type(e).__name__ or "closed" in str(e).lower():
+                await shot(page, "yt_xx_dialog_closed", debug)
+                log("  upload dialog closed mid-upload (rejected?)")
+                raise UploadLimitReached("upload dialog closed mid-upload")
             enabled = False
         if not creating and enabled:
             ready = True
@@ -600,6 +645,11 @@ def main(argv=None):
     args = parse_args(argv)
     try:
         return asyncio.run(run(args))
+    except UploadLimitReached as e:
+        # Sentinel the orchestrator greps to STOP the upload phase for the day.
+        # Exit code 2 = daily-limit/verify-gate; retrying is futile (~24h reset).
+        log(f"DAILY_LIMIT_REACHED — stopping upload phase. Reason: {e}")
+        return 2
     except KeyboardInterrupt:
         return 130
 
