@@ -540,8 +540,22 @@ async def run(args):
             return 8
         log(f"  duration {int(dur)}s ok")
 
-        if not await open_upload(page, video, args.debug):
-            return 4
+        try:
+            if not await open_upload(page, video, args.debug):
+                return 4
+        except UploadLimitReached as e:
+            # Do NOT close the browser. The daily limit on new channels is lifted
+            # by account verification (phone) — the human needs the window open to
+            # complete it. Log the sentinel for the orchestrator, screenshot the
+            # proof, then hold the session open until the human is done.
+            log(f"DAILY_LIMIT_REACHED — browser held open for verification. "
+                f"Complete verification in the window, then Ctrl+C to stop. Reason: {e}")
+            try:
+                while True:
+                    await page.wait_for_timeout(60000)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                pass
+            return 2
         # The gate most often fires here — on the sensitive upload action. Clear
         # it BEFORE filling details, so title/description/tags/audience/Save are
         # not silently blocked by the modal. No reload (would drop the dialog).
