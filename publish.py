@@ -87,7 +87,7 @@ async def find_by_title(page, channel_id, title):
     return ""
 
 
-OPEN_UPLOAD_LIMIT_S = 90
+OPEN_UPLOAD_LIMIT_S = 480
 
 
 async def open_upload(page, video, debug):
