@@ -618,6 +618,22 @@ async def run(args):
         else:
             log("VIDEO_ID: not found in save dialog (check channel RSS)")
 
+        # YouTube may still be running content checks (especially on Shorts,
+        # whose NotebookLM background music gets Content-ID-flagged) and then
+        # recommends keeping the video private with a "Publish anyway" option.
+        # Click it to honor the --visibility we asked for. No-op when the button
+        # isn't present (desktop videos pass checks cleanly).
+        try:
+            for _ in range(3):
+                if await ui.click_text(page, ["Publish anyway",
+                                              "Опубликовать в любом случае"], 3000):
+                    log("  clicked 'Publish anyway' (override checks-recommend-private)")
+                    await page.wait_for_timeout(3000)
+                    break
+                await page.wait_for_timeout(2000)
+        except Exception as e:
+            log(f"  Publish-anyway note: {str(e).splitlines()[0][:50]}")
+
         active = channel_id_from_url(page.url)
         if active:
             await _goto(page, f"{STUDIO}/channel/{active}/videos/upload")
