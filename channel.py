@@ -42,15 +42,25 @@ async def _strip_backdrops(page):
 
 async def _real_click(page, locator, timeout=4000):
     """Real (trusted) click with backdrop removal + retry — needed for the
-    account card, whose polymer navigation does NOT fire on a synthetic click."""
+    account card, whose polymer navigation does NOT fire on a synthetic click.
+
+    Uses force=True so an invisible transparent overlay (common on the 2026
+    Studio shell) cannot make Playwright's actionability check hang on the
+    avatar/menu button; force still dispatches a real trusted pointer event, so
+    polymer navigation fires. Falls back to a synthetic dispatch only if the
+    trusted click never lands."""
     for _ in range(3):
         await _strip_backdrops(page)
         try:
-            await locator.click(timeout=timeout)
+            await locator.click(timeout=timeout, force=True)
             return True
         except Exception:
             await page.wait_for_timeout(800)
-    return False
+    try:
+        await locator.first.evaluate("el => el.click()")
+        return True
+    except Exception:
+        return False
 
 
 async def _click_switch_card(page, needle):
@@ -115,9 +125,8 @@ async def select_channel(page, channel_id=None, handle=None):
         # the Accounts panel populates.
         await page.wait_for_timeout(2500)
         await _strip_backdrops(page)
-        try:
-            await page.get_by_text("Switch account").first.click(timeout=8000)
-        except Exception:
+        sa = page.get_by_text("Switch account").first
+        if not await _real_click(page, sa, timeout=8000):
             log(f"  'Switch account' not clickable (attempt {attempt + 1})")
             await page.keyboard.press("Escape")
             await page.wait_for_timeout(1500)
