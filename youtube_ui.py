@@ -70,7 +70,11 @@ async def click_text(page, words, timeout_ms=4000):
             hay = ((await el.get_attribute("aria-label") or "") + " "
                    + (await el.inner_text() or "")).lower()
             if any(w.lower() in hay for w in words):
-                await el.click(timeout=3000)
+                # force=True: Studio's transparent overlay (cdk/iron backdrop)
+                # otherwise eats the pointer at the button's center, so the click
+                # returns "success" but the handler never fires (the dialog stays
+                # open). force still dispatches a real trusted event at center.
+                await el.click(timeout=3000, force=True)
                 return True
         except Exception:
             continue
