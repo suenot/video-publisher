@@ -149,11 +149,21 @@ async def _open_upload(page, video, debug):
     # Create button, then the "Upload video" item — retrying the whole sequence.
     fi = None
     for attempt in range(3):
+        # `find_by_title` leaves the page on a Studio content route.  A fresh
+        # navigation back to the dashboard is slow and can hang for the full
+        # upload timeout, even though the upload button is already available on
+        # the current route.  Reuse the live Studio page whenever possible.
         try:
-            await _goto(page, STUDIO)
-            await page.wait_for_timeout(2500)
+            upload_icon = page.locator("ytcp-icon-button#upload-icon")
+            if await upload_icon.count() == 0 or not await upload_icon.first.is_visible():
+                await _goto(page, STUDIO)
+                await page.wait_for_timeout(2500)
         except Exception:
-            pass
+            try:
+                await _goto(page, STUDIO)
+                await page.wait_for_timeout(2500)
+            except Exception:
+                pass
         await ui.dismiss_overlays(page)
         await _strip_backdrops(page)
 
@@ -162,6 +172,7 @@ async def _open_upload(page, video, debug):
         # actionability check. A real mouse click at the element's centre works,
         # so drive the mouse directly.
         clicked = False
+        clicked_upload_icon = False
         for sel in ("ytcp-icon-button#upload-icon",
                     "button[aria-label='Upload videos']",
                     "button[aria-label='Create']"):
@@ -175,6 +186,7 @@ async def _open_upload(page, video, debug):
                 await page.mouse.click(box["x"] + box["width"] / 2,
                                        box["y"] + box["height"] / 2)
                 clicked = True
+                clicked_upload_icon = sel != "button[aria-label='Create']"
                 break
             except Exception:
                 continue
@@ -182,9 +194,11 @@ async def _open_upload(page, video, debug):
             await ui.click_text(page, ["Create"], 8000)
         await page.wait_for_timeout(1200)
         await _strip_backdrops(page)
-        # If a menu opened, pick "Upload video". (When the upload-icon was used
-        # the dialog is already opening and this is a harmless no-op.)
-        await ui.click_text(page, ["Upload video", "Upload videos"], 5000)
+        # The upload icon opens the dialog directly.  Only the Create button
+        # needs a second click on the menu item; searching that menu after a
+        # direct icon click can stall on Studio's overlay layer.
+        if not clicked_upload_icon:
+            await ui.click_text(page, ["Upload video", "Upload videos"], 5000)
         await page.wait_for_timeout(2000)
         await ui.dismiss_overlays(page)
         await _strip_backdrops(page)
