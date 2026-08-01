@@ -155,15 +155,12 @@ async def _open_upload(page, video, debug):
         # the current route.  Reuse the live Studio page whenever possible.
         try:
             upload_icon = page.locator("ytcp-icon-button#upload-icon")
-            # Do not navigate away from any Studio route just because the
-            # custom element has not finished hydrating yet.  The dashboard
-            # navigation itself is the part that can hang; the short wait and
-            # retry below are enough for the icon to appear.
-            if "studio.youtube.com" not in page.url:
-                await _goto(page, STUDIO)
-                await page.wait_for_timeout(2500)
-            else:
-                await page.wait_for_timeout(1500)
+            # A stale /videos/upload route can keep the previous upload page
+            # alive without a file input after a completed upload. Always
+            # re-enter the Studio dashboard so Create -> Upload videos mounts
+            # a fresh dialog for the next file.
+            await _goto(page, STUDIO)
+            await page.wait_for_timeout(2500)
         except Exception:
             try:
                 await _goto(page, STUDIO)
