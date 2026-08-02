@@ -633,7 +633,16 @@ async def run(args):
         if vid:
             log(f"VIDEO_ID: {vid}")
         else:
-            log("VIDEO_ID: not found in save dialog (check channel RSS)")
+            # Fallback: the save-dialog share-link scrape is flaky (the dialog
+            # sometimes closes before youtu.be/<id> renders), but at this point
+            # the upload IS saved. Recover the id from Studio's own content list
+            # via find_by_title — built for exactly this case (its docstring).
+            try:
+                vid = await find_by_title(page, cid, meta["title"])
+            except Exception as e:
+                log(f"  find_by_title fallback failed: {e}")
+            log(f"VIDEO_ID: {vid}" if vid
+                else "VIDEO_ID: not found in save dialog (find_by_title fallback empty)")
 
         # YouTube may still be running content checks (especially on Shorts,
         # whose NotebookLM background music gets Content-ID-flagged) and then
