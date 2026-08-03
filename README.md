@@ -79,6 +79,24 @@ venv/bin/python publish.py --video clip.mp4 --title "Hi" \
 **private**), `--made-for-kids` (default: not for kids), `--allow-long`
 (bypass the 15-min unverified block), `--verify-wait`, `--keep-open`, `--debug`.
 
+### Schedule an uploaded video
+
+Scheduling uses the video's Studio edit page, so the exact video id is the
+source of truth and content-list hover tooltips cannot intercept a click:
+
+```bash
+venv/bin/python schedule_video.py \
+  --channel-handle @your-channel \
+  --video-id VIDEO_ID \
+  --date 2026-08-03 \
+  --time '5:00 PM' \
+  --expect-timezone 'Pacific|GMT-7|PDT|PT'
+```
+
+Add `--dry-run --debug` to fill and screenshot the schedule without saving it.
+The command verifies the active channel, timezone, accepted date/time and the
+values stored by Studio after saving. Re-running the same schedule is a no-op.
+
 ### Exit codes
 
 `0` ok · `2` bad args · `3` not logged in · `4` couldn't start upload ·
