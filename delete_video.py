@@ -38,7 +38,21 @@ async def delete_one(page, vid: str, debug: bool = True) -> bool:
     if await menu.count() == 0:
         log(f"  {vid}: no Options menu")
         return False
-    await ui.mouse_click(page, menu.first)
+    # On current headless Camoufox, page.mouse.click() can block forever on the
+    # Polymer overflow control. A forced locator click still emits the trusted
+    # event and has a bounded timeout.
+    try:
+        # The overflow menu accepts its component-level click handler. This
+        # bypasses Camoufox's occasionally wedged trusted-input channel while
+        # preserving the normal UI confirmation that follows.
+        await menu.first.evaluate("el => el.click()")
+    except Exception:
+        try:
+            await menu.first.click(timeout=6_000, force=True)
+        except Exception:
+            if not await ui.mouse_click(page, menu.first):
+                log(f"  {vid}: could not open Options menu")
+                return False
     await page.wait_for_timeout(1500)
 
     # The menu entry is plain "Delete"; "Delete forever" is the confirm button
@@ -53,7 +67,10 @@ async def delete_one(page, vid: str, debug: bool = True) -> bool:
     # becomes usable.
     box = page.locator("ytcp-checkbox-lit, tp-yt-paper-checkbox")
     if await box.count() > 0:
-        await ui.mouse_click(page, box.first)
+        try:
+            await box.first.click(timeout=6_000, force=True)
+        except Exception:
+            await ui.mouse_click(page, box.first)
         await page.wait_for_timeout(800)
     await shot(page, f"delete_{vid}_confirm", debug)
 
@@ -68,9 +85,14 @@ async def delete_one(page, vid: str, debug: bool = True) -> bool:
                     continue
             except Exception:
                 continue
-            if await ui.mouse_click(page, el):
+            try:
+                await el.click(timeout=6_000, force=True)
                 confirmed = True
                 break
+            except Exception:
+                if await ui.mouse_click(page, el):
+                    confirmed = True
+                    break
         if confirmed:
             break
     if not confirmed:
