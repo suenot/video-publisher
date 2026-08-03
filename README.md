@@ -43,7 +43,8 @@ one session at a time, at your own risk. Provided AS IS.
 
 ## Setup
 
-Use Python **3.11–3.13** (NOT 3.14 — Camoufox 0.4.11 needs Playwright ≤ 1.51).
+Use Python **3.11–3.13**. The pinned Camoufox 0.5.4 package uses Playwright
+1.59–1.60, matching the current Camoufox browser protocol.
 
 ```bash
 python3.11 -m venv venv && venv/bin/pip install -r requirements.txt

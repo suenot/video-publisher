@@ -1,4 +1,4 @@
-camoufox[geoip]==0.4.11
-playwright>=1.49,<=1.51
+camoufox[geoip]==0.5.4
+playwright>=1.59,<1.61
 pytest>=8.0
 pytest-asyncio>=0.24

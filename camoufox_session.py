@@ -35,7 +35,10 @@ def _stable_fingerprint():
 def make_camoufox(headless=False):
     from camoufox.async_api import AsyncCamoufox
     PROFILE_DIR.mkdir(exist_ok=True)
-    opts = dict(headless=headless, humanize=True, geoip=_geoip_available(),
+    # Camoufox 0.5.x treats bool as an int and serializes humanize=True as
+    # `humanize:maxTime=true`; the browser requires a double and then stops
+    # servicing trusted mouse input. Pass an explicit float instead.
+    opts = dict(headless=headless, humanize=1.0, geoip=_geoip_available(),
                 block_images=False, persistent_context=True,
                 user_data_dir=str(PROFILE_DIR), window=(1440, 900))
     fp = _stable_fingerprint()
