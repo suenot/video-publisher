@@ -73,9 +73,11 @@ async def upload_one(page, args):
     await ui.dismiss_overlays(page)
     if f"/video/{args.video_id}" not in page.url:
         raise RuntimeError("subtitle page did not open")
+    # Unlike the details editor, the current Studio subtitles route does not
+    # expose the video title in its light DOM.  The immutable video ID in the
+    # route is the reliable identity check here; requiring a missing title
+    # would incorrectly reject every valid caption upload.
     text = await ui.all_text(page)
-    if args.title and args.title.lower() not in text:
-        raise RuntimeError("title check failed on subtitle page")
 
     # Add the requested language only when the language row is absent.
     if args.language.lower() not in text:
