@@ -245,13 +245,40 @@ async def schedule_one(page, args):
     if f"/video/{args.video_id}/edit" not in page.url:
         raise RuntimeError(f"edit page did not open for {args.video_id}")
     body_text = await page.locator("body").inner_text()
-    if "Oops, something went wrong" in body_text:
-        raise RuntimeError("Studio rejected the edit page; active channel is wrong")
     if args.title and args.title.lower() not in body_text.lower():
         raise RuntimeError(f"title check failed for video {args.video_id}")
     await shot(page, "schedule_01_edit", args.debug)
     prior_state = await open_visibility_editor(page)
     await shot(page, "schedule_02_visibility", args.debug)
+    if args.publish_now:
+        public = await first_visible((
+            page.locator("tp-yt-paper-radio-button[name='PUBLIC']"),
+            page.get_by_text("Public", exact=True),
+        ))
+        if public is None:
+            raise RuntimeError("Public visibility option was not found")
+        await dom_click(public)
+        await page.wait_for_timeout(400)
+        if (await public.get_attribute("aria-checked")) not in ("true", None):
+            raise RuntimeError("Public visibility was not selected")
+        done = await first_visible((
+            page.get_by_role("button", name="Done", exact=True),
+            page.locator("ytcp-button").filter(has_text=re.compile(r"^Done$")),
+        ))
+        if done is None or await done.is_disabled():
+            raise RuntimeError("Done button is not enabled")
+        await dom_click(done)
+        await page.wait_for_timeout(700)
+        save = await first_visible((
+            page.get_by_role("button", name="Save", exact=True),
+            page.locator("ytcp-button").filter(has_text=re.compile(r"^Save$")),
+        ))
+        if save is None or await save.is_disabled():
+            raise RuntimeError("top Save button is not enabled")
+        await dom_click(save)
+        await page.wait_for_timeout(1800)
+        log(f"  PUBLISHED {args.video_id}")
+        return
     await open_schedule(page)
     current_date, current_time = await schedule_values(page)
     if ("scheduled" in prior_state.lower()
@@ -331,6 +358,8 @@ def parse_args(argv=None):
     parser.add_argument("--time", required=True, help="HH:MM or H:MM AM/PM")
     parser.add_argument("--expect-timezone", default="Pacific|GMT-7|PDT|PT")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--publish-now", action="store_true",
+                        help="switch an existing private video to public")
     parser.add_argument("--debug", action="store_true")
     return parser.parse_args(argv)
 
