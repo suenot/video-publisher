@@ -90,7 +90,9 @@ async def expand_advanced(page) -> bool:
     label = (await tog.first.inner_text()).strip().lower()
     if "less" in label:
         return True
-    await ui.mouse_click(page, tog.first)
+    if not await _try_click(page, tog.first):
+        log("  ERROR: advanced-settings toggle is not clickable")
+        return False
     await page.wait_for_timeout(2500)
     label = (await tog.first.inner_text()).strip().lower()
     if "less" not in label:
@@ -186,7 +188,9 @@ async def edit_one(page, vid: str, meta, language: str = "") -> bool:
         log(f"  {vid} no title field")
         return False
     if meta["title"]:
-        await ui.fill_contenteditable(page, tb, meta["title"])
+        if not await ui.fill_contenteditable(page, tb, meta["title"]):
+            log("  ERROR: title field rejected input")
+            return False
         # Leaving focus in the title is how a later Meta+A reached the language
         # dropdown and selected Akkadian; blur before touching anything else.
         await page.evaluate("() => document.activeElement && document.activeElement.blur()")
@@ -253,7 +257,9 @@ async def edit_one(page, vid: str, meta, language: str = "") -> bool:
         # A saved title says nothing about the description: they persist
         # independently, and a run that only lands the title is not done.
         desc_ok = (not meta["description"]
-                   or (desc_el is not None and (await desc_el.inner_text()).strip()))
+                   or (desc_el is not None
+                       and (await desc_el.inner_text()).strip()
+                       == meta["description"].strip()))
         # Same for the language: it lives in its own request and can be the only
         # thing this run changed.
         lang_ok = True
