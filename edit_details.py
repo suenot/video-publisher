@@ -205,7 +205,13 @@ async def edit_one(page, vid: str, meta, language: str = "") -> bool:
         ti = await ui.first_present(page, ["input[aria-label='Tags']",
                                            "#tags-container input#text-input"], 5000)
         if ti is not None:
-            await ti.click(timeout=3000)
+            if not await _try_click(page, ti):
+                log("  ERROR: tags field is not clickable")
+                return False
+            # Replace existing chips instead of appending duplicates. When the
+            # input is empty, Backspace removes the preceding chip in Studio.
+            for _ in range(60):
+                await page.keyboard.press("Backspace")
             await page.keyboard.type(", ".join(meta["tags"]) + ",", delay=2)
         else:
             log("  tags field not found; leaving tags unchanged")
