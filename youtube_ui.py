@@ -92,7 +92,7 @@ async def fill_contenteditable(page, loc, text):
                 pass
         await page.keyboard.press("Delete")
         await page.wait_for_timeout(150)
-        await page.keyboard.type(text, delay=2)
+        await page.keyboard.type(text, delay=0)
         await page.wait_for_timeout(300)
         return True
     except Exception:

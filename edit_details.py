@@ -216,7 +216,13 @@ async def edit_one(page, vid: str, meta, language: str = "") -> bool:
             # input is empty, Backspace removes the preceding chip in Studio.
             for _ in range(60):
                 await page.keyboard.press("Backspace")
-            await page.keyboard.type(", ".join(meta["tags"]) + ",", delay=2)
+            # The tags field is a chip input with an autocomplete dropdown: it
+            # rewrites its own value between keystrokes, so a zero delay races
+            # it and two tags fuse into one ("terminal tooai agents explained").
+            # Type one tag at a time and let the chip commit before the next.
+            for tag in meta["tags"]:
+                await page.keyboard.type(tag + ",", delay=6)
+                await page.wait_for_timeout(120)
         else:
             log("  tags field not found; leaving tags unchanged")
 
