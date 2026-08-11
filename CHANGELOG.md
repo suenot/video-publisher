@@ -7,6 +7,12 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-11
+
+### Fixed
+
+- Upload timed caption files through Studio's current `Upload manual` dialog.
+
 ## [0.1.1] - 2026-08-11
 
 ### Fixed

@@ -19,6 +19,12 @@ import youtube_ui as ui
 STUDIO = "https://studio.youtube.com"
 
 
+def current_manual_upload_surface(text, language):
+    low = (text or "").lower()
+    return (f"video language: {language.lower()}" in low
+            and "upload manual" in low)
+
+
 async def deep_click_text(page, phrases, timeout_ms=8000):
     """Click a visible Studio control by text, including open shadow roots."""
     wanted = [phrase.lower() for phrase in phrases]
@@ -271,7 +277,9 @@ async def upload_one(page, args):
     log(f"  subtitle surface: {text[:240]!r}")
 
     # Add the requested language only when the language row is absent.
-    if f"{args.language.lower()} (video language)" not in text:
+    manual_surface = current_manual_upload_surface(text, args.language)
+    if (f"{args.language.lower()} (video language)" not in text
+            and not manual_surface):
         await shot(page, "captions_00_language_missing", args.debug)
         if not await click_smallest_text(page, "set language"):
             raise RuntimeError("Set language control not found")
@@ -288,18 +296,28 @@ async def upload_one(page, args):
     # Its hover action is an Edit pencil (as opposed to the separate Add
     # language button). Enter that editor and choose Upload file there.
     text = await ui.all_text(page)
-    if "automatic captions" in text and "published" in text:
-        # Automatic captions are a distinct track and must not suppress the
-        # user-provided SRT attached to the video-language row.
-        pass
-    if not await open_video_language_editor(page, args.language, debug=args.debug):
-        raise RuntimeError("caption Edit control not found")
-    await page.wait_for_timeout(700)
-    if not await deep_click_text(page, ["upload file"]):
-        raise RuntimeError("Upload file action not found")
-    await page.wait_for_timeout(600)
-    if not await deep_click_text(page, ["with timing"]):
-        raise RuntimeError("With timing option not found")
+    manual_surface = current_manual_upload_surface(text, args.language)
+    if manual_surface:
+        if not await deep_click_text(page, ["upload manual"]):
+            raise RuntimeError("Upload manual action not found")
+        if not await deep_click_text(page, ["with timing"]):
+            raise RuntimeError("With timing option not found")
+        if not await deep_click_text(page, ["continue"]):
+            raise RuntimeError("caption Continue control not found")
+    else:
+        if "automatic captions" in text and "published" in text:
+            # Automatic captions are a distinct track and must not suppress the
+            # user-provided SRT attached to the video-language row.
+            pass
+        if not await open_video_language_editor(page, args.language,
+                                                debug=args.debug):
+            raise RuntimeError("caption Edit control not found")
+        await page.wait_for_timeout(700)
+        if not await deep_click_text(page, ["upload file"]):
+            raise RuntimeError("Upload file action not found")
+        await page.wait_for_timeout(600)
+        if not await deep_click_text(page, ["with timing"]):
+            raise RuntimeError("With timing option not found")
     handle = await file_input(page)
     if handle is None:
         raise RuntimeError("caption file input not found")
