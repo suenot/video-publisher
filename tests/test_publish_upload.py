@@ -1,6 +1,12 @@
 import pytest
 
-from publish import _wait_for_upload_launcher
+from publish import _upload_route, _wait_for_upload_launcher
+
+
+def test_upload_route_targets_channel_and_opens_dialog():
+    assert _upload_route("UCtarget") == (
+        "https://studio.youtube.com/channel/UCtarget/videos/upload?d=ud"
+    )
 
 
 class DelayedLocator:

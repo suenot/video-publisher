@@ -7,6 +7,15 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-11
+
+### Fixed
+
+- Open the target channel's upload route directly instead of returning through
+  the Studio dashboard.
+- Stop after one bounded upload-dialog attempt when Studio does not mount a
+  file input.
+
 ## [0.1.0] - 2026-08-11
 
 ### Fixed

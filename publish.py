@@ -138,6 +138,11 @@ async def _wait_for_upload_launcher(page, timeout_ms=20_000):
     return None, False
 
 
+def _upload_route(channel_id):
+    base = f"{STUDIO}/channel/{channel_id}" if channel_id else STUDIO
+    return f"{base}/videos/upload?d=ud"
+
+
 async def open_upload(page, video, debug):
     """Open the upload dialog and hand it the file, under a hard time limit.
 
@@ -163,62 +168,35 @@ async def open_upload(page, video, debug):
 
 
 async def _open_upload(page, video, debug):
-    # Opening the upload dialog is flaky: the Create menu doesn't always expand,
-    # and a transient cdk-overlay-backdrop can eat the click. Deep-linking to
-    # .../videos/upload no longer auto-opens the dialog (it just lands on the
-    # Content list). So: go to the Studio home, neutralize backdrops, click the
-    # Create button, then the "Upload video" item — retrying the whole sequence.
-    fi = None
-    for attempt in range(3):
-        # `find_by_title` leaves the page on a Studio content route.  A fresh
-        # navigation back to the dashboard is slow and can hang for the full
-        # upload timeout, even though the upload button is already available on
-        # the current route.  Reuse the live Studio page whenever possible.
-        try:
-            # A stale /videos/upload route can keep the previous upload page
-            # alive without a file input after a completed upload. Always
-            # re-enter the Studio dashboard so Create -> Upload videos mounts
-            # a fresh dialog for the next file.
-            await _goto(page, STUDIO)
-            await wait_for_channel_context(page, timeout_ms=20_000)
-        except Exception:
-            try:
-                await _goto(page, STUDIO)
-                await wait_for_channel_context(page, timeout_ms=20_000)
-            except Exception:
-                pass
-        await ui.dismiss_overlays(page)
-        await _strip_backdrops(page)
+    # The duplicate check leaves Studio on the target channel's Content page.
+    # Returning through the root dashboard can hang before its shell mounts, so
+    # ask Studio to open a fresh upload dialog on that channel directly. Keep
+    # this to one bounded navigation: a missing input is evidence to stop, not
+    # a reason to keep sending clicks to an unknown page.
+    active = channel_id_from_url(page.url)
+    route = _upload_route(active)
+    log(f"  opening upload route: {route}")
+    try:
+        await _goto(page, route, tries=1)
+        await wait_for_channel_context(page, timeout_ms=20_000)
+    except Exception as e:
+        log(f"  upload route did not load: {e}")
 
-        # Locator.click() times out on these controls even though they are
-        # visible and unobstructed — Studio's polymer layer keeps failing the
-        # actionability check. A real mouse click at the element's centre works,
-        # so drive the mouse directly.
-        clicked = False
-        clicked_upload_icon = False
-        launcher, opens_dialog = await _wait_for_upload_launcher(page)
-        if launcher is not None:
-            clicked = await ui.mouse_click(page, launcher)
-            clicked_upload_icon = clicked and opens_dialog
-        if not clicked:
-            await ui.click_text(page, ["Create"], 8000)
-        await page.wait_for_timeout(1200)
-        await _strip_backdrops(page)
-        # The upload icon opens the dialog directly.  Only the Create button
-        # needs a second click on the menu item; searching that menu after a
-        # direct icon click can stall on Studio's overlay layer.
-        if not clicked_upload_icon:
-            await ui.click_text(page, ["Upload video", "Upload videos"], 5000)
-        await page.wait_for_timeout(2000)
+    file_selectors = ["ytcp-uploads-dialog input[type='file']", "input[type='file']"]
+    fi = await ui.first_present(page, file_selectors, 20_000)
+    if fi is None:
         await ui.dismiss_overlays(page)
         await _strip_backdrops(page)
-        await shot(page, "yt_02_upload_dialog", debug)
-        fi = await ui.first_present(
-            page, ["ytcp-uploads-dialog input[type='file']", "input[type='file']"], 15000)
-        if fi is not None:
-            break
-        log(f"  no file input found (attempt {attempt + 1}); retrying")
-        await page.wait_for_timeout(2000)
+        launcher, opens_dialog = await _wait_for_upload_launcher(page)
+        clicked = launcher is not None and await ui.mouse_click(page, launcher)
+        if clicked and not opens_dialog:
+            await page.wait_for_timeout(1200)
+            await _strip_backdrops(page)
+            await ui.click_text(page, ["Upload video", "Upload videos"], 5000)
+        if clicked:
+            fi = await ui.first_present(page, file_selectors, 15_000)
+
+    await shot(page, "yt_02_upload_dialog", debug)
     if fi is None:
         log("  no file input found")
         return False
