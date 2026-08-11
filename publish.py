@@ -9,7 +9,8 @@ from camoufox_session import make_camoufox, prepare_page, logged_in_youtube, log
 from metadata import load_metadata
 from precheck import video_duration, check
 from channel import (select_channel, resolve_channel_id,
-                     channel_id_from_url, _strip_backdrops)
+                     channel_id_from_url, wait_for_channel_context,
+                     _strip_backdrops)
 from verify_result import parse_status
 import youtube_ui as ui
 
@@ -88,6 +89,11 @@ async def find_by_title(page, channel_id, title):
 
 
 OPEN_UPLOAD_LIMIT_S = 480
+UPLOAD_LAUNCHERS = (
+    ("ytcp-icon-button#upload-icon", True),
+    ("button[aria-label='Upload videos']", True),
+    ("button[aria-label='Create']", False),
+)
 
 # YouTube shows a transient notice when the channel hit its daily upload quota
 # (common on new/low-subscriber channels after a burst of uploads). Retrying is
@@ -115,6 +121,21 @@ def _limit_hit(txt):
 class UploadLimitReached(Exception):
     """Raised when YouTube reports the daily upload limit / a verify gate.
     Signals the orchestrator to STOP the upload phase (no retry)."""
+
+
+async def _wait_for_upload_launcher(page, timeout_ms=20_000):
+    """Return Studio's first visible upload launcher once its shell mounts."""
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        for selector, opens_dialog in UPLOAD_LAUNCHERS:
+            locator = page.locator(selector)
+            try:
+                if await locator.count() > 0 and await locator.first.is_visible():
+                    return locator.first, opens_dialog
+            except Exception:
+                continue
+        await page.wait_for_timeout(500)
+    return None, False
 
 
 async def open_upload(page, video, debug):
@@ -154,17 +175,16 @@ async def _open_upload(page, video, debug):
         # upload timeout, even though the upload button is already available on
         # the current route.  Reuse the live Studio page whenever possible.
         try:
-            upload_icon = page.locator("ytcp-icon-button#upload-icon")
             # A stale /videos/upload route can keep the previous upload page
             # alive without a file input after a completed upload. Always
             # re-enter the Studio dashboard so Create -> Upload videos mounts
             # a fresh dialog for the next file.
             await _goto(page, STUDIO)
-            await page.wait_for_timeout(2500)
+            await wait_for_channel_context(page, timeout_ms=20_000)
         except Exception:
             try:
                 await _goto(page, STUDIO)
-                await page.wait_for_timeout(2500)
+                await wait_for_channel_context(page, timeout_ms=20_000)
             except Exception:
                 pass
         await ui.dismiss_overlays(page)
@@ -176,23 +196,10 @@ async def _open_upload(page, video, debug):
         # so drive the mouse directly.
         clicked = False
         clicked_upload_icon = False
-        for sel in ("ytcp-icon-button#upload-icon",
-                    "button[aria-label='Upload videos']",
-                    "button[aria-label='Create']"):
-            loc = page.locator(sel)
-            try:
-                if await loc.count() == 0 or not await loc.first.is_visible():
-                    continue
-                box = await loc.first.bounding_box()
-                if not box:
-                    continue
-                await page.mouse.click(box["x"] + box["width"] / 2,
-                                       box["y"] + box["height"] / 2)
-                clicked = True
-                clicked_upload_icon = sel != "button[aria-label='Create']"
-                break
-            except Exception:
-                continue
+        launcher, opens_dialog = await _wait_for_upload_launcher(page)
+        if launcher is not None:
+            clicked = await ui.mouse_click(page, launcher)
+            clicked_upload_icon = clicked and opens_dialog
         if not clicked:
             await ui.click_text(page, ["Create"], 8000)
         await page.wait_for_timeout(1200)
