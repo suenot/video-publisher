@@ -17,6 +17,17 @@ def channel_id_from_url(url):
     return m.group(1) if m else None
 
 
+async def wait_for_channel_context(page, timeout_ms=15_000):
+    """Wait for Studio's root URL to redirect to its active channel."""
+    interval_ms = 500
+    for _ in range(max(1, timeout_ms // interval_ms)):
+        active = channel_id_from_url(page.url)
+        if active:
+            return active
+        await page.wait_for_timeout(interval_ms)
+    return channel_id_from_url(page.url)
+
+
 async def resolve_channel_id(page, handle):
     """Resolve @handle -> UC... via the public channel page."""
     h = normalize_handle(handle)
@@ -98,8 +109,8 @@ async def select_channel(page, channel_id=None, handle=None):
             log(f"  could not resolve {handle} to a channel id")
 
     await page.goto(STUDIO, wait_until="domcontentloaded", timeout=60_000)
-    await page.wait_for_timeout(3000)
-    if target and channel_id_from_url(page.url) == target:
+    active = await wait_for_channel_context(page)
+    if target and active == target:
         log(f"  already on target channel: {target}")
         return target
 
