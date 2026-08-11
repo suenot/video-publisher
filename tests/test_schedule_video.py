@@ -1,6 +1,40 @@
 import pytest
 
-from schedule_video import display_date, display_time, parse_args
+from schedule_video import display_date, display_time, parse_args, wait_for_edit_surface
+
+
+class DelayedLocator:
+    def __init__(self, page, selector):
+        self.page = page
+        self.selector = selector
+
+    @property
+    def first(self):
+        return self
+
+    async def count(self):
+        return int(self.selector == "#title-textarea #textbox" and self.page.waits >= 2)
+
+
+class DelayedEditPage:
+    def __init__(self):
+        self.waits = 0
+
+    def locator(self, selector):
+        return DelayedLocator(self, selector)
+
+    async def wait_for_timeout(self, _timeout_ms):
+        self.waits += 1
+
+
+@pytest.mark.asyncio
+async def test_wait_for_edit_surface_allows_studio_to_mount():
+    page = DelayedEditPage()
+
+    locator = await wait_for_edit_surface(page, timeout_ms=2_000)
+
+    assert locator.selector == "#title-textarea #textbox"
+    assert page.waits == 2
 
 
 def test_display_date_matches_studio():

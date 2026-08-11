@@ -7,6 +7,13 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-11
+
+### Fixed
+
+- Wait for the Studio video editor to mount before changing visibility.
+- Preserve Studio's selected timed-caption option before continuing.
+
 ## [0.1.2] - 2026-08-11
 
 ### Fixed

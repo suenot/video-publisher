@@ -61,6 +61,15 @@ async def first_visible(locators):
     return None
 
 
+async def wait_for_edit_surface(page, timeout_ms=30_000):
+    """Wait until Studio mounts the video details form after navigation."""
+    return await ui.first_present(page, (
+        "#title-textarea #textbox",
+        "ytcp-video-visibility",
+        "ytcp-dropdown-trigger",
+    ), timeout_ms)
+
+
 async def visible_field_dump(scope):
     return await scope.evaluate("""root => {
       const out = [];
@@ -240,7 +249,8 @@ async def schedule_one(page, args):
 
     await page.goto(f"{STUDIO}/video/{args.video_id}/edit",
                     wait_until="domcontentloaded", timeout=60_000)
-    await page.wait_for_timeout(4500)
+    if await wait_for_edit_surface(page) is None:
+        raise RuntimeError("video edit surface did not mount")
     await ui.dismiss_overlays(page)
     if f"/video/{args.video_id}/edit" not in page.url:
         raise RuntimeError(f"edit page did not open for {args.video_id}")

@@ -300,8 +300,23 @@ async def upload_one(page, args):
     if manual_surface:
         if not await deep_click_text(page, ["upload manual"]):
             raise RuntimeError("Upload manual action not found")
-        if not await deep_click_text(page, ["with timing"]):
-            raise RuntimeError("With timing option not found")
+        timing = page.locator(
+            "tp-yt-paper-radio-button:has-text('With timing'), "
+            "[role='radio']:has-text('With timing')"
+        ).first
+        try:
+            await timing.wait_for(state="visible", timeout=5000)
+            if await timing.get_attribute("aria-checked") != "true":
+                await timing.click(force=True)
+        except Exception as exc:
+            raise RuntimeError("With timing option not found") from exc
+        continue_button = page.get_by_role("button", name="Continue", exact=True).first
+        try:
+            await continue_button.wait_for(state="visible", timeout=5000)
+        except Exception as exc:
+            raise RuntimeError("caption Continue control not found") from exc
+        if await continue_button.is_disabled():
+            raise RuntimeError("caption Continue control is disabled")
         if not await deep_click_text(page, ["continue"]):
             raise RuntimeError("caption Continue control not found")
     else:
