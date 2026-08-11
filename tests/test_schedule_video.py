@@ -1,6 +1,7 @@
 import pytest
 
-from schedule_video import display_date, display_time, parse_args, wait_for_edit_surface
+from schedule_video import (display_date, display_time, parse_args,
+                            wait_for_edit_surface, wait_for_save_landed)
 
 
 class DelayedLocator:
@@ -35,6 +36,26 @@ async def test_wait_for_edit_surface_allows_studio_to_mount():
 
     assert locator.selector == "#title-textarea #textbox"
     assert page.waits == 2
+
+
+class SavedButton:
+    async def is_disabled(self):
+        return True
+
+    async def is_visible(self):
+        return True
+
+
+@pytest.mark.asyncio
+async def test_wait_for_save_landed_accepts_disabled_save(monkeypatch):
+    page = DelayedEditPage()
+
+    async def no_saving_text(_page):
+        return "Video details"
+
+    monkeypatch.setattr("schedule_video.ui.all_text", no_saving_text)
+
+    assert await wait_for_save_landed(page, SavedButton(), timeout_ms=2_000)
 
 
 def test_display_date_matches_studio():

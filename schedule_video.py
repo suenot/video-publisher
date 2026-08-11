@@ -70,6 +70,37 @@ async def wait_for_edit_surface(page, timeout_ms=30_000):
     ), timeout_ms)
 
 
+async def wait_for_save_landed(page, save, timeout_ms=20_000):
+    """Wait for Studio to finish persisting a details-page save."""
+    await page.wait_for_timeout(2000)
+    deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
+    while asyncio.get_running_loop().time() < deadline:
+        text = await ui.all_text(page)
+        try:
+            done = await save.is_disabled() or not await save.is_visible()
+        except Exception:
+            done = True
+        if done and "saving" not in text:
+            return True
+        await page.wait_for_timeout(500)
+    return False
+
+
+async def wait_for_public_visibility(page, timeout_ms=15_000):
+    """Confirm the edit page reflects Public after saving."""
+    deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
+    while asyncio.get_running_loop().time() < deadline:
+        visibility = await first_visible((
+            page.locator("ytcp-video-visibility").filter(has_text="Public"),
+            page.locator("ytcp-dropdown-trigger").filter(has_text="Public"),
+            page.get_by_text("Public", exact=True),
+        ))
+        if visibility is not None:
+            return True
+        await page.wait_for_timeout(500)
+    return False
+
+
 async def visible_field_dump(scope):
     return await scope.evaluate("""root => {
       const out = [];
@@ -286,7 +317,11 @@ async def schedule_one(page, args):
         if save is None or await save.is_disabled():
             raise RuntimeError("top Save button is not enabled")
         await dom_click(save)
-        await page.wait_for_timeout(1800)
+        if not await wait_for_save_landed(page, save):
+            raise RuntimeError("Studio did not finish saving Public visibility")
+        if not await wait_for_public_visibility(page):
+            raise RuntimeError("Studio did not retain Public visibility")
+        await shot(page, "schedule_03_published", args.debug)
         log(f"  PUBLISHED {args.video_id}")
         return
     await open_schedule(page)

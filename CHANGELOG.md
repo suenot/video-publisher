@@ -7,6 +7,12 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-11
+
+### Fixed
+
+- Verify that Public visibility is saved before closing Studio.
+
 ## [0.1.3] - 2026-08-11
 
 ### Fixed
