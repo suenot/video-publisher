@@ -93,10 +93,12 @@ async def set_tags(page, tags, debug):
 
 async def save(page, debug):
     """Click the Save button (top-right). Returns True if clicked."""
-    # The Save button shows as #save-button (or a button labeled Save) once edits are pending.
+    # Studio's current edit page exposes a plain button with aria-label=Save;
+    # older layouts used #save-button or ytcp-button#save.
     btn = await ui.first_present(
         page,
-        ["#save-button", "#submit-button",
+        ["button[aria-label='Save']", "ytcp-button[aria-label='Save']",
+         "ytcp-button#save", "#save-button", "#submit-button",
          "button:has-text('Save')", "button:has-text('SAVE')"],
         15000)
     if btn is None:

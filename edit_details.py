@@ -245,7 +245,10 @@ async def edit_one(page, vid: str, meta, language: str = "") -> bool:
     saved = False
     for attempt in range(3):
         log(f"  save attempt {attempt + 1}")
-        btn = page.locator("ytcp-button#save")
+        btn = page.locator(
+            "button[aria-label='Save'], ytcp-button[aria-label='Save'], "
+            "ytcp-button#save, #save-button, #submit-button"
+        )
         if await btn.count() == 0:
             await page.wait_for_timeout(1000)
             continue

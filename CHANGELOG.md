@@ -9,6 +9,8 @@ Versioning.
 
 ### Fixed
 
+- Verify title and description after upload, and support the current Studio Save control.
+
 - Activate Studio's visible "Select files" control when the upload modal has
   mounted without exposing its file input yet.
 

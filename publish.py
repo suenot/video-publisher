@@ -260,12 +260,32 @@ async def _open_upload(page, video, debug):
 async def fill_details(page, meta, thumbnail, made_for_kids, debug):
     tb = await ui.first_present(page, ["#title-textarea #textbox"], 30000)
     if tb is not None and meta["title"]:
-        await ui.fill_contenteditable(page, tb, meta["title"])
-        log("  title set")
+        if not await ui.fill_contenteditable(page, tb, meta["title"]):
+            log("  ERROR: title field rejected input")
+            return False
+        await page.evaluate("() => document.activeElement && document.activeElement.blur()")
+        await page.wait_for_timeout(800)
+        if (await tb.inner_text()).strip() != meta["title"].strip():
+            log("  ERROR: title field did not retain input")
+            return False
+        log("  title set and verified")
+    elif meta["title"]:
+        log("  ERROR: title field not found")
+        return False
     db = await ui.first_present(page, ["#description-textarea #textbox"], 5000)
     if db is not None and meta["description"]:
-        await ui.fill_contenteditable(page, db, meta["description"])
-        log("  description set")
+        if not await ui.fill_contenteditable(page, db, meta["description"]):
+            log("  ERROR: description field rejected input")
+            return False
+        await page.evaluate("() => document.activeElement && document.activeElement.blur()")
+        await page.wait_for_timeout(800)
+        if (await db.inner_text()).strip() != meta["description"].strip():
+            log("  ERROR: description field did not retain input")
+            return False
+        log("  description set and verified")
+    elif meta["description"]:
+        log("  ERROR: description field not found")
+        return False
     if thumbnail and Path(thumbnail).is_file():
         th = page.locator("ytcp-thumbnails-compact-editor-uploader input[type='file'], "
                           "#file-loader input[type='file']")
