@@ -198,6 +198,14 @@ async def _open_upload(page, video, debug):
 
     await shot(page, "yt_02_upload_dialog", debug)
     if fi is None:
+        # Studio's current upload dialog can render the file input only after
+        # its visible "Select files" control is activated.  The modal is
+        # already open in this state (the screenshot above is the evidence),
+        # so click that control once before treating the upload as unavailable.
+        selected = await ui.click_text(page, ["Select files", "Select file"], 5000)
+        if selected:
+            fi = await ui.first_present(page, file_selectors, 15_000)
+    if fi is None:
         log("  no file input found")
         return False
     await fi.set_input_files(str(video))

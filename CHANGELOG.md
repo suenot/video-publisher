@@ -7,6 +7,11 @@ Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Activate Studio's visible "Select files" control when the upload modal has
+  mounted without exposing its file input yet.
+
 ## [0.1.4] - 2026-08-11
 
 ### Fixed
