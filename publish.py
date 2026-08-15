@@ -257,16 +257,47 @@ async def _open_upload(page, video, debug):
     return True
 
 
+def _same_field_text(actual, expected):
+    return actual.replace("\r\n", "\n").strip() == expected.replace("\r\n", "\n").strip()
+
+
+async def _fill_upload_contenteditable(page, loc, value):
+    """Fill a Studio upload field only after it owns keyboard focus.
+
+    A forced click can look successful while focus remains on the dialog body.
+    In that state the title stays as the filename and the description stays
+    empty. Focus explicitly, verify the exact field, and retry with real key
+    events if direct text insertion did not land.
+    """
+    for method in ("insert_text", "type"):
+        try:
+            await loc.scroll_into_view_if_needed(timeout=5000)
+            if not await _try_click(page, loc):
+                continue
+            await loc.focus(timeout=5000)
+            await page.keyboard.press("Meta+A")
+            await page.keyboard.press("Delete")
+            if method == "insert_text":
+                await page.keyboard.insert_text(value)
+            else:
+                await page.keyboard.type(value, delay=0)
+            await page.wait_for_timeout(600)
+            if not _same_field_text(await loc.inner_text(), value):
+                continue
+            await page.evaluate("() => document.activeElement && document.activeElement.blur()")
+            await page.wait_for_timeout(800)
+            if _same_field_text(await loc.inner_text(), value):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 async def fill_details(page, meta, thumbnail, made_for_kids, debug):
     tb = await ui.first_present(page, ["#title-textarea #textbox"], 30000)
     if tb is not None and meta["title"]:
-        if not await ui.fill_contenteditable(page, tb, meta["title"]):
+        if not await _fill_upload_contenteditable(page, tb, meta["title"]):
             log("  ERROR: title field rejected input")
-            return False
-        await page.evaluate("() => document.activeElement && document.activeElement.blur()")
-        await page.wait_for_timeout(800)
-        if (await tb.inner_text()).strip() != meta["title"].strip():
-            log("  ERROR: title field did not retain input")
             return False
         log("  title set and verified")
     elif meta["title"]:
@@ -274,13 +305,8 @@ async def fill_details(page, meta, thumbnail, made_for_kids, debug):
         return False
     db = await ui.first_present(page, ["#description-textarea #textbox"], 5000)
     if db is not None and meta["description"]:
-        if not await ui.fill_contenteditable(page, db, meta["description"]):
+        if not await _fill_upload_contenteditable(page, db, meta["description"]):
             log("  ERROR: description field rejected input")
-            return False
-        await page.evaluate("() => document.activeElement && document.activeElement.blur()")
-        await page.wait_for_timeout(800)
-        if (await db.inner_text()).strip() != meta["description"].strip():
-            log("  ERROR: description field did not retain input")
             return False
         log("  description set and verified")
     elif meta["description"]:
@@ -308,6 +334,8 @@ async def fill_details(page, meta, thumbnail, made_for_kids, debug):
             await page.keyboard.type(", ".join(meta["tags"]) + ",", delay=2)
             log("  tags set")
     ok = await set_audience(page, made_for_kids)
+    if ok:
+        ok = await validate_details_before_next(page, debug)
     await shot(page, "yt_05_details", debug)
     return ok
 
@@ -343,6 +371,119 @@ async def set_audience(page, made_for_kids):
 VISIBILITY_RADIO = "tp-yt-paper-radio-button[name='{}']"
 
 
+# Studio surfaces validation in several ways depending on the current Polymer
+# component: aria-invalid, an `invalid` property/attribute, an error class, or a
+# red field/container. Walk open shadow roots so upload-dialog fields are not
+# missed by document-level selectors.
+DETAILS_VALIDATION_JS = r"""
+() => {
+  const out = []; const seen = new Set(); const emitted = new Set();
+  const controls = [
+    'input', 'textarea', 'select', '[contenteditable="true"]',
+    'ytcp-dropdown-trigger', 'ytcp-text-dropdown-trigger',
+    'ytcp-form-input-container', 'tp-yt-paper-input'
+  ].join(',');
+
+  function isRed(value) {
+    const m = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (!m) return false;
+    const r = Number(m[1]), g = Number(m[2]), b = Number(m[3]);
+    return r >= 170 && r >= g * 1.35 && r >= b * 1.2;
+  }
+
+  function visible(el) {
+    try {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    } catch (_) { return false; }
+  }
+
+  function add(el, reason) {
+    const aria = el.getAttribute && el.getAttribute('aria-label');
+    const name = el.getAttribute && el.getAttribute('name');
+    const id = el.id || '';
+    let field = aria || name || id || el.tagName.toLowerCase();
+    let text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+    for (let p = el.parentElement, depth = 0; p && depth < 4; p = p.parentElement, depth++) {
+      const candidate = (p.innerText || p.textContent || '').trim().replace(/\s+/g, ' ');
+      if (candidate && candidate.length <= 180) text = candidate;
+      const label = p.getAttribute && p.getAttribute('aria-label');
+      if (label) field = label;
+    }
+    const key = `${field}|${reason}|${text.slice(0, 180)}`;
+    if (!emitted.has(key)) {
+      emitted.add(key);
+      out.push({field: field.slice(0, 100), reason, text: text.slice(0, 180)});
+    }
+  }
+
+  function inspect(el) {
+    if (!visible(el)) return;
+    const cls = String(el.className || '').toLowerCase();
+    const attrInvalid = (el.getAttribute && el.getAttribute('aria-invalid') === 'true')
+      || (el.hasAttribute && el.hasAttribute('invalid'))
+      || (el.hasAttribute && el.hasAttribute('has-error'))
+      || el.invalid === true
+      || /(^|[\s_-])(error|invalid)([\s_-]|$)/.test(cls);
+    if (attrInvalid) {
+      add(el, 'invalid');
+      return;
+    }
+    let node = el;
+    for (let depth = 0; node && depth < 4; node = node.parentElement, depth++) {
+      const style = getComputedStyle(node);
+      if ([style.borderTopColor, style.borderRightColor, style.borderBottomColor,
+           style.borderLeftColor, style.outlineColor].some(isRed)) {
+        add(el, 'visual-red');
+        return;
+      }
+    }
+  }
+
+  function walk(root) {
+    let elements; try { elements = root.querySelectorAll('*'); } catch (_) { return; }
+    for (const el of elements) {
+      if (seen.has(el)) continue;
+      seen.add(el);
+      try { if (el.matches && el.matches(controls)) inspect(el); } catch (_) {}
+      if (el.shadowRoot) walk(el.shadowRoot);
+    }
+  }
+  walk(document);
+  return out;
+}
+"""
+
+
+async def details_validation_issues(page):
+    """Return visible invalid/red upload fields, including shadow DOM."""
+    try:
+        issues = await page.evaluate(DETAILS_VALIDATION_JS)
+    except Exception as e:
+        return [{"field": "details form", "reason": "inspection-failed",
+                 "text": str(e).splitlines()[0][:180]}]
+    return issues if isinstance(issues, list) else []
+
+
+def format_validation_issues(issues):
+    parts = []
+    for issue in issues[:8]:
+        field = str(issue.get("field") or "field")
+        reason = str(issue.get("reason") or "invalid")
+        text = str(issue.get("text") or "").strip()
+        parts.append(f"{field} [{reason}]" + (f": {text}" if text else ""))
+    return "; ".join(parts)
+
+
+async def validate_details_before_next(page, debug):
+    issues = await details_validation_issues(page)
+    if not issues:
+        return True
+    log("  ERROR: invalid details before Next: " + format_validation_issues(issues))
+    await shot(page, "yt_xx_details_invalid", debug)
+    return False
+
+
 async def _try_click(page, loc):
     """Locator.click() first, mouse click as the fallback."""
     try:
@@ -368,10 +509,16 @@ async def click_next(page, times, debug):
             if "saving" not in (await ui.all_text(page)).lower():
                 break
             await page.wait_for_timeout(1000)
+        if not await validate_details_before_next(page, debug):
+            return False
         nx = page.locator("ytcp-button#next-button, #next-button")
         clicked = False
         try:
             if await nx.count() > 0 and await nx.first.is_visible():
+                if not await nx.first.is_enabled():
+                    log("  ERROR: Next is disabled after details validation")
+                    await shot(page, "yt_xx_next_disabled", debug)
+                    return False
                 clicked = await _try_click(page, nx.first)
         except Exception:
             clicked = False

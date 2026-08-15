@@ -7,8 +7,13 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-08-15
+
 ### Fixed
 
+- Detect invalid or visually red inputs, textareas, and selectors before the
+  upload flow presses `Next`, and stop with field-level diagnostics.
+- Focus and verify upload title and description fields before advancing.
 - Verify title and description after upload, and support the current Studio Save control.
 
 - Activate Studio's visible "Select files" control when the upload modal has
