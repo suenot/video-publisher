@@ -14,6 +14,7 @@ reopens the very wizard that failed, with the uploaded file already attached.
 import argparse
 import asyncio
 import sys
+import time
 
 from camoufox_session import make_camoufox, prepare_page, log
 from channel import select_channel
@@ -22,39 +23,46 @@ from publish import fill_details, click_next, set_visibility, save
 import youtube_ui as ui
 
 STUDIO_VIDEO = "https://studio.youtube.com/video/{vid}/edit"
+DRAFT_BANNER_SELECTOR = "ytcp-banner ytcp-button#action-1, ytcp-button#action-1"
+
+
+async def wait_for_draft_banner(page, timeout_ms=30_000):
+    """Wait for Studio's late-mounted draft banner and return its action."""
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        text = await ui.all_text(page)
+        button = page.locator(DRAFT_BANNER_SELECTOR)
+        if "draft state" in text.lower() and await button.count() > 0:
+            return button.first
+        await page.wait_for_timeout(500)
+    return None
+
+
+async def click_draft_banner(page, button):
+    try:
+        await button.click(timeout=4000, force=True)
+        return True
+    except Exception:
+        return await ui.mouse_click(page, button)
 
 
 async def finish(page, vid: str, meta, thumbnail: str, visibility: str,
                  made_for_kids: bool, debug: bool) -> bool:
     await page.goto(STUDIO_VIDEO.format(vid=vid), wait_until="domcontentloaded",
                     timeout=60_000)
-    await page.wait_for_timeout(6000)
     await ui.dismiss_overlays(page)
 
-    text = await ui.all_text(page)
-    if "draft state" not in text.lower():
+    button = await wait_for_draft_banner(page)
+    if button is None:
         log(f"  {vid} is not a draft; use set_visibility.py instead")
         return False
 
-    # The button mounts late and is sometimes covered by a just-dismissed
-    # overlay, so retry with a reload rather than giving up on one miss.
-    opened = False
-    for attempt in range(3):
-        if await ui.click_text(page, ["Edit draft"], 15000):
-            opened = True
-            break
-        btn = page.locator("ytcp-button:has-text('Edit draft'), "
-                           "button:has-text('Edit draft')")
-        if await btn.count() > 0 and await ui.mouse_click(page, btn.first):
-            opened = True
-            break
-        await page.reload(wait_until="domcontentloaded", timeout=60_000)
-        await page.wait_for_timeout(6000)
-        await ui.dismiss_overlays(page)
-    if not opened:
+    # The action is inside the banner's shadow DOM. A text query can see the
+    # label but cannot click it, so target the actual button host.
+    if not await click_draft_banner(page, button):
         log(f"  {vid} could not open the draft wizard")
         return False
-    await page.wait_for_timeout(6000)
+    await page.wait_for_timeout(3000)
 
     if not await fill_details(page, meta, thumbnail, made_for_kids, debug):
         return False

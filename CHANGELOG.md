@@ -7,6 +7,13 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-08-16
+
+### Fixed
+
+- Wait for Studio's draft banner and open its shadow-DOM action before editing
+  a stranded upload.
+
 ## [0.1.7] - 2026-08-15
 
 ### Fixed
