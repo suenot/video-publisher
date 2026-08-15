@@ -7,6 +7,15 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-08-16
+
+### Fixed
+
+- Refuse `Next` and `Save` while any visible input, textarea, select, or
+  contenteditable in the active upload wizard is invalid or visually red.
+- Persist Studio descriptions through the Polymer input event path and verify
+  exact title and description values before advancing.
+
 ## [0.1.9] - 2026-08-16
 
 ### Fixed

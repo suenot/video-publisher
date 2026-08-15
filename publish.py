@@ -261,7 +261,7 @@ def _same_field_text(actual, expected):
     return actual.replace("\r\n", "\n").strip() == expected.replace("\r\n", "\n").strip()
 
 
-async def _fill_upload_contenteditable(page, loc, value):
+async def _fill_upload_contenteditable(page, loc, value, field_name="field"):
     """Fill a Studio upload field only after it owns keyboard focus.
 
     A forced click can look successful while focus remains on the dialog body.
@@ -269,48 +269,92 @@ async def _fill_upload_contenteditable(page, loc, value):
     empty. Focus explicitly, verify the exact field, and retry with real key
     events if direct text insertion did not land.
     """
-    for method in ("insert_text", "type"):
+    for method in ("insert_text", "fill", "type", "exec_command"):
         try:
             await loc.scroll_into_view_if_needed(timeout=5000)
             if not await _try_click(page, loc):
                 continue
             await loc.focus(timeout=5000)
-            await page.keyboard.press("Meta+A")
-            await page.keyboard.press("Delete")
-            if method == "insert_text":
-                await page.keyboard.insert_text(value)
+            if method == "exec_command":
+                # Studio's Polymer description editor can ignore Playwright's
+                # fill/type APIs even though it is a normal contenteditable.
+                # execCommand produces the input event Polymer listens for and
+                # therefore updates the persisted model, not just textContent.
+                result = await loc.evaluate(
+                    """(el, replacement) => {
+                      el.focus();
+                      const selection = window.getSelection();
+                      const range = document.createRange();
+                      range.selectNodeContents(el);
+                      selection.removeAllRanges();
+                      selection.addRange(range);
+                      return document.execCommand(
+                        'insertText', false, replacement);
+                    }""",
+                    value,
+                )
+                if not result:
+                    continue
             else:
-                await page.keyboard.type(value, delay=0)
+                await page.keyboard.press("Meta+A")
+                await page.keyboard.press("Delete")
+                if method == "insert_text":
+                    await page.keyboard.insert_text(value)
+                elif method == "fill":
+                    await loc.fill(value)
+                else:
+                    await page.keyboard.type(value, delay=0)
             await page.wait_for_timeout(600)
-            if not _same_field_text(await loc.inner_text(), value):
+            actual = await loc.inner_text()
+            if not _same_field_text(actual, value):
+                log(f"  {field_name} {method} did not land "
+                    f"(field reads {actual.strip()[:80]!r})")
                 continue
             await page.evaluate("() => document.activeElement && document.activeElement.blur()")
             await page.wait_for_timeout(800)
             if _same_field_text(await loc.inner_text(), value):
                 return True
-        except Exception:
+        except Exception as e:
+            log(f"  {field_name} {method} failed: "
+                f"{type(e).__name__}: {str(e).splitlines()[0][:120]}")
             continue
     return False
 
 
 async def fill_details(page, meta, thumbnail, made_for_kids, debug):
-    tb = await ui.first_visible(page, ["#title-textarea #textbox"], 30000)
+    tb = await ui.first_visible(
+        page,
+        ["ytcp-uploads-dialog #title-textarea #textbox",
+         "#title-textarea #textbox"],
+        30000)
     if tb is not None and meta["title"]:
-        if not await _fill_upload_contenteditable(page, tb, meta["title"]):
+        if not await _fill_upload_contenteditable(page, tb, meta["title"], "title"):
             log("  ERROR: title field rejected input")
             return False
         log("  title set and verified")
     elif meta["title"]:
         log("  ERROR: title field not found")
         return False
-    db = await ui.first_visible(page, ["#description-textarea #textbox"], 5000)
+    db = await ui.first_visible(
+        page,
+        ["ytcp-uploads-dialog #description-textarea #textbox",
+         "#description-textarea #textbox"],
+        5000)
     if db is not None and meta["description"]:
-        if not await _fill_upload_contenteditable(page, db, meta["description"]):
+        if not await _fill_upload_contenteditable(page, db, meta["description"],
+                                                  "description"):
             log("  ERROR: description field rejected input")
             return False
         log("  description set and verified")
     elif meta["description"]:
         log("  ERROR: description field not found")
+        return False
+    if meta["title"] and not _same_field_text(await tb.inner_text(), meta["title"]):
+        log("  ERROR: title changed while filling description")
+        return False
+    if (meta["description"]
+            and not _same_field_text(await db.inner_text(), meta["description"])):
+        log("  ERROR: description changed before validation")
         return False
     if thumbnail and Path(thumbnail).is_file():
         th = page.locator("ytcp-thumbnails-compact-editor-uploader input[type='file'], "
@@ -394,7 +438,11 @@ DETAILS_VALIDATION_JS = r"""
   function visible(el) {
     try {
       const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
+      const style = getComputedStyle(el);
+      return r.width > 0 && r.height > 0
+        && r.bottom > 0 && r.right > 0
+        && r.top < window.innerHeight && r.left < window.innerWidth
+        && style.display !== 'none' && style.visibility !== 'hidden';
     } catch (_) { return false; }
   }
 
@@ -424,6 +472,7 @@ DETAILS_VALIDATION_JS = r"""
       || (el.hasAttribute && el.hasAttribute('invalid'))
       || (el.hasAttribute && el.hasAttribute('has-error'))
       || el.invalid === true
+      || (typeof el.checkValidity === 'function' && !el.checkValidity())
       || /(^|[\s_-])(error|invalid)([\s_-]|$)/.test(cls);
     if (attrInvalid) {
       add(el, 'invalid');
@@ -449,7 +498,12 @@ DETAILS_VALIDATION_JS = r"""
       if (el.shadowRoot) walk(el.shadowRoot);
     }
   }
-  walk(document);
+  // The draft page remains mounted behind the upload wizard and contains
+  // duplicate, off-screen controls. Inspect the active wizard when present so
+  // a stale editor field cannot create a false red-field failure.
+  const dialogs = Array.from(document.querySelectorAll('ytcp-uploads-dialog'))
+    .filter(visible);
+  walk(dialogs.length ? dialogs[dialogs.length - 1] : document);
   return out;
 }
 """
@@ -475,13 +529,18 @@ def format_validation_issues(issues):
     return "; ".join(parts)
 
 
-async def validate_details_before_next(page, debug):
+async def validate_details_before_action(page, debug, action):
     issues = await details_validation_issues(page)
     if not issues:
         return True
-    log("  ERROR: invalid details before Next: " + format_validation_issues(issues))
+    log(f"  ERROR: invalid details before {action}: "
+        + format_validation_issues(issues))
     await shot(page, "yt_xx_details_invalid", debug)
     return False
+
+
+async def validate_details_before_next(page, debug):
+    return await validate_details_before_action(page, debug, "Next")
 
 
 async def _try_click(page, loc):
@@ -584,6 +643,9 @@ async def _save_landed(page, done_locator):
 
 
 async def save(page, debug):
+    if not await validate_details_before_action(page, debug, "Save"):
+        log("  ERROR: refusing Save while a visible form field is invalid")
+        return False
     d = page.locator("ytcp-button#done-button, #done-button")
     clicked = False
     for attempt in range(3):
