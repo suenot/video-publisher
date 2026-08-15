@@ -7,6 +7,13 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-08-16
+
+### Fixed
+
+- Fill the visible title and description fields in the draft wizard instead of
+  hidden duplicates from the editor behind it.
+
 ## [0.1.8] - 2026-08-16
 
 ### Fixed

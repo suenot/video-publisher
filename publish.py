@@ -294,7 +294,7 @@ async def _fill_upload_contenteditable(page, loc, value):
 
 
 async def fill_details(page, meta, thumbnail, made_for_kids, debug):
-    tb = await ui.first_present(page, ["#title-textarea #textbox"], 30000)
+    tb = await ui.first_visible(page, ["#title-textarea #textbox"], 30000)
     if tb is not None and meta["title"]:
         if not await _fill_upload_contenteditable(page, tb, meta["title"]):
             log("  ERROR: title field rejected input")
@@ -303,7 +303,7 @@ async def fill_details(page, meta, thumbnail, made_for_kids, debug):
     elif meta["title"]:
         log("  ERROR: title field not found")
         return False
-    db = await ui.first_present(page, ["#description-textarea #textbox"], 5000)
+    db = await ui.first_visible(page, ["#description-textarea #textbox"], 5000)
     if db is not None and meta["description"]:
         if not await _fill_upload_contenteditable(page, db, meta["description"]):
             log("  ERROR: description field rejected input")

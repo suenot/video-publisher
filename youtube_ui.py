@@ -113,6 +113,23 @@ async def first_present(page, selectors, timeout_ms=15000):
     return None
 
 
+async def first_visible(page, selectors, timeout_ms=15000):
+    """Return the first visible match, not a hidden duplicate behind a modal."""
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        for sel in selectors:
+            loc = page.locator(sel)
+            try:
+                for i in range(await loc.count()):
+                    candidate = loc.nth(i)
+                    if await candidate.is_visible():
+                        return candidate
+            except Exception:
+                continue
+        await page.wait_for_timeout(500)
+    return None
+
+
 async def mouse_click(page, loc):
     """Click via the mouse at the element's centre.
 
