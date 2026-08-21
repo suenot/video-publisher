@@ -86,22 +86,24 @@ async def click_smallest_text(page, phrase, timeout_ms=8000):
           if (seen.has(el)) continue; seen.add(el);
           const box = el.getBoundingClientRect();
           const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-          if (box.width && box.height && text.toLowerCase() === needle) items.push({el, text});
+          if (box.width && box.height && text.toLowerCase() === needle) items.push({el, area: box.width * box.height});
           if (el.shadowRoot) walk(el.shadowRoot);
         }
       }
       walk(document);
-      items.sort((a, b) => a.text.length - b.text.length);
-      if (!items.length) return null;
-      const box = items[0].el.getBoundingClientRect();
-      return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+      items.sort((a, b) => a.area - b.area);
+      if (!items.length) return false;
+      const el = items[0].el;
+      for (const type of ['pointerdown','mousedown','pointerup','mouseup','click']) {
+        el.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, composed: true}));
+      }
+      return true;
     }"""
     deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
     while asyncio.get_running_loop().time() < deadline:
         try:
             hit = await page.evaluate(script, needle)
             if hit:
-                await page.mouse.click(hit["x"], hit["y"])
                 await page.wait_for_timeout(500)
                 return True
         except Exception:

@@ -40,7 +40,7 @@ def make_camoufox(headless=False):
     # servicing trusted mouse input. Pass an explicit float instead.
     opts = dict(headless=headless, humanize=1.0, geoip=_geoip_available(),
                 block_images=False, persistent_context=True,
-                user_data_dir=str(PROFILE_DIR), window=(1440, 900))
+                user_data_dir=str(PROFILE_DIR), window=(1920, 1080))
     fp = _stable_fingerprint()
     if fp is not None:
         opts["fingerprint"] = fp
